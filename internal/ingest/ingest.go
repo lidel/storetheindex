@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/storetheindex/internal/counter"
 	"github.com/filecoin-project/storetheindex/internal/metrics"
 	"github.com/filecoin-project/storetheindex/internal/registry"
+	"github.com/filecoin-project/storetheindex/mhutil"
 	"github.com/filecoin-project/storetheindex/peerutil"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/ipfs/go-cid"
@@ -29,6 +30,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
+	"github.com/multiformats/go-multihash"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 	"golang.org/x/time/rate"
@@ -143,9 +145,43 @@ type Ingester struct {
 	indexCounts *counter.IndexCounts
 }
 
+// DoubleHashedIndexer is a wrapper around
+type DoubleHashedIndexer struct {
+	indexer.Interface
+}
+
+func (dhi DoubleHashedIndexer) Get(mh multihash.Multihash) ([]indexer.Value, bool, error) {
+	dmh, err := mhutil.SecondHash(mh)
+	if err != nil {
+		return nil, false, err
+	}
+	return dhi.Interface.Get(dmh)
+
+}
+
+func (dhi DoubleHashedIndexer) Put(val indexer.Value, mhs ...multihash.Multihash) error {
+	dmhs, err := mhutil.SecondHashes(mhs...)
+	if err != nil {
+		return err
+	}
+	return dhi.Interface.Put(val, dmhs...)
+}
+
+func (dhi DoubleHashedIndexer) Remove(val indexer.Value, mhs ...multihash.Multihash) error {
+	dmhs, err := mhutil.SecondHashes(mhs...)
+	if err != nil {
+		return err
+	}
+	return dhi.Interface.Remove(val, dmhs...)
+}
+
 // NewIngester creates a new Ingester that uses a dagsync Subscriber to handle
 // communication with providers.
 func NewIngester(cfg config.Ingest, h host.Host, idxr indexer.Interface, reg *registry.Registry, ds datastore.Batching, idxCounts *counter.IndexCounts) (*Ingester, error) {
+	if _, ok := idxr.(DoubleHashedIndexer); !ok {
+		idxr = DoubleHashedIndexer{idxr}
+	}
+
 	ing := &Ingester{
 		host:        h,
 		ds:          ds,

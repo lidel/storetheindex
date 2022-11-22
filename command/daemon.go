@@ -116,7 +116,7 @@ func daemonCommand(cctx *cli.Context) error {
 	}
 
 	// Create indexer core
-	indexerCore := engine.New(resultCache, valueStore)
+	indexerCore := ingest.DoubleHashedIndexer{Interface: engine.New(resultCache, valueStore)}
 
 	// Create datastore
 	dataStorePath, err := config.Path("", cfg.Datastore.Dir)
