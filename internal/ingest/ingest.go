@@ -148,6 +148,11 @@ type Ingester struct {
 // DoubleHashedIndexer is a wrapper around
 type DoubleHashedIndexer struct {
 	indexer.Interface
+	em *encMapper
+}
+
+func NewDHIndexer(ind indexer.Interface, ds datastore.Datastore) DoubleHashedIndexer {
+	return DoubleHashedIndexer{Interface: ind, em: NewEncMapper(ds)}
 }
 
 func (dhi DoubleHashedIndexer) Get(mh multihash.Multihash) ([]indexer.Value, bool, error) {
@@ -156,14 +161,23 @@ func (dhi DoubleHashedIndexer) Get(mh multihash.Multihash) ([]indexer.Value, boo
 		return nil, false, err
 	}
 	return dhi.Interface.Get(dmh)
-
 }
 
 func (dhi DoubleHashedIndexer) Put(val indexer.Value, mhs ...multihash.Multihash) error {
-	dmhs, err := mhutil.SecondHashes(mhs...)
-	if err != nil {
-		return err
+
+	dmhs := make([]multihash.Multihash, len(mhs))
+	for i, mh := range mhs {
+		dmh, err := mhutil.SecondHash(mh)
+		if err != nil {
+			return err
+		}
+		dmhs[i] = dmh
+		err = dhi.em.Put(context.Background(), mh, dmh, string(val.ProviderID))
+		if err != nil {
+			return err
+		}
 	}
+
 	return dhi.Interface.Put(val, dmhs...)
 }
 
@@ -179,7 +193,7 @@ func (dhi DoubleHashedIndexer) Remove(val indexer.Value, mhs ...multihash.Multih
 // communication with providers.
 func NewIngester(cfg config.Ingest, h host.Host, idxr indexer.Interface, reg *registry.Registry, ds datastore.Batching, idxCounts *counter.IndexCounts) (*Ingester, error) {
 	if _, ok := idxr.(DoubleHashedIndexer); !ok {
-		idxr = DoubleHashedIndexer{idxr}
+		idxr = NewDHIndexer(idxr, ds)
 	}
 
 	ing := &Ingester{

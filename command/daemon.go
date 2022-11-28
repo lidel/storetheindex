@@ -115,9 +115,6 @@ func daemonCommand(cctx *cli.Context) error {
 		log.Info("Result cache disabled")
 	}
 
-	// Create indexer core
-	indexerCore := ingest.DoubleHashedIndexer{Interface: engine.New(resultCache, valueStore)}
-
 	// Create datastore
 	dataStorePath, err := config.Path("", cfg.Datastore.Dir)
 	if err != nil {
@@ -131,6 +128,9 @@ func daemonCommand(cctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// Create indexer core
+	indexerCore := ingest.NewDHIndexer(engine.New(resultCache, valueStore), dstore)
 
 	indexCounts := counter.NewIndexCounts(dstore)
 	indexCounts.SetTotalAddend(cfg.Indexer.IndexCountTotalAddend)
