@@ -7,6 +7,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 
 	"github.com/ipfs/go-datastore"
@@ -16,16 +17,16 @@ import (
 )
 
 const (
-	mhToEncPeerIDPrefix     = "/es/mh2ep/"
-	encPeerIDToPeerIdPrefix = "/es/ep2p/"
-	iterations              = 1000
-	keyLen                  = 32
-	saltLen                 = 8
-	ivLen                   = 12
+	mh2epPrefix = "/es/mh2ep/"
+	ep2pPrefix  = "/es/ep2p/"
+	iterations  = 1000
+	keyLen      = 32
+	saltLen     = 8
+	ivLen       = 12
 )
 
 type encMapper struct {
-	ds  datastore.Datastore
+	ds  datastore.Batching
 	cdc codec
 }
 
@@ -43,7 +44,7 @@ type codec interface {
 type binaryCodec struct {
 }
 
-func NewEncMapper(ds datastore.Datastore) *encMapper {
+func NewEncMapper(ds datastore.Batching) *encMapper {
 	return &encMapper{
 		ds:  ds,
 		cdc: &binaryCodec{},
@@ -83,12 +84,30 @@ func (em *encMapper) Put(ctx context.Context, mh, dmh multihash.Multihash, peerI
 		return err
 	}
 
-	dsKey := em.newKey(dmh)
-	return em.ds.Put(ctx, dsKey, marshalled)
+	batch, err := em.ds.Batch(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = batch.Put(ctx, em.newMh2epKey(dmh), marshalled)
+	if err != nil {
+		return err
+	}
+
+	err = batch.Put(ctx, em.newEp2pKey(encPeerID), []byte(peerID))
+	if err != nil {
+		return err
+	}
+
+	return batch.Commit(ctx)
 }
 
-func (em *encMapper) newKey(mh multihash.Multihash) datastore.Key {
-	return datastore.NewKey(adProcessedPrefix + mh.HexString())
+func (em *encMapper) newMh2epKey(mh multihash.Multihash) datastore.Key {
+	return datastore.NewKey(mh2epPrefix + mh.HexString())
+}
+
+func (em *encMapper) newEp2pKey(ep []byte) datastore.Key {
+	return datastore.NewKey(ep2pPrefix + hex.EncodeToString(ep))
 }
 
 func (em *encMapper) deriveKey(passphrase []byte) ([]byte, []byte, error) {

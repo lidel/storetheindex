@@ -151,7 +151,7 @@ type DoubleHashedIndexer struct {
 	em *encMapper
 }
 
-func NewDHIndexer(ind indexer.Interface, ds datastore.Datastore) DoubleHashedIndexer {
+func NewDHIndexer(ind indexer.Interface, ds datastore.Batching) DoubleHashedIndexer {
 	return DoubleHashedIndexer{Interface: ind, em: NewEncMapper(ds)}
 }
 
