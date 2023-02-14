@@ -25,6 +25,9 @@ func findCmd(cctx *cli.Context) error {
 
 	mhArgs := cctx.StringSlice("mh")
 	cidArgs := cctx.StringSlice("cid")
+	if len(mhArgs) == 0 && len(cidArgs) == 0 {
+		return fmt.Errorf("no cids or multihashes have been provided, use --cid or --mh flags to provide at least one: 'storetheindex find --cid Qm...'")
+	}
 	mhs := make([]multihash.Multihash, 0, len(mhArgs)+len(cidArgs))
 	for i := range mhArgs {
 		m, err := multihash.FromB58String(mhArgs[i])
