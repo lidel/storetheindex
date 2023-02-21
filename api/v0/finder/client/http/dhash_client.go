@@ -26,10 +26,11 @@ const (
 type DHashClient struct {
 	Client
 
-	dhstoreUrl    string
-	dhFinderUrl   string
-	dhMetadataUrl string
-	pcache        *providerCache
+	dhstoreUrl      string
+	dhFinderUrl     string
+	dhMetadataUrl   string
+	pcache          *providerCache
+	metricsReporter func(method string, latency time.Duration)
 }
 
 // NewDHashClient instantiates a new client that uses Reader Privacy API for querying data.
@@ -37,28 +38,46 @@ type DHashClient struct {
 // dhstoreUrl specifies the URL of the double hashed store that can respond to find encrypted multihash and find encrypted metadata requests.
 // stiUrl specifies the URL of storetheindex that can respond to find provider requests.
 // dhstoreUrl and stiUrl are expected to be the same when these services are deployed behing a proxy - indexstar.
-func NewDHashClient(dhstoreUrl string, stiUrl string, options ...httpclient.Option) (*DHashClient, error) {
+func NewDHashClientWithReporter(dhstoreUrl string, stiUrl string, metricsReporter func(method string, latency time.Duration), options ...httpclient.Option) (*DHashClient, error) {
 	c, err := New(stiUrl, options...)
 	if err != nil {
 		return nil, err
 	}
-
-	return &DHashClient{
-		Client:        *c,
-		dhstoreUrl:    dhstoreUrl,
-		dhFinderUrl:   dhstoreUrl + finderPath,
-		dhMetadataUrl: dhstoreUrl + metadataPath,
+	dc := &DHashClient{
+		Client:          *c,
+		dhstoreUrl:      dhstoreUrl,
+		dhFinderUrl:     dhstoreUrl + finderPath,
+		dhMetadataUrl:   dhstoreUrl + metadataPath,
+		metricsReporter: metricsReporter,
 		pcache: &providerCache{
 			ttl:    pcacheTtl,
 			pinfos: make(map[peer.ID]*pinfoWrapper),
 			pinfoFetcher: func(ctx context.Context, pid peer.ID) (*model.ProviderInfo, error) {
-				return c.GetProvider(ctx, pid)
+				start := time.Now()
+				p, err := c.GetProvider(ctx, pid)
+				if err != nil && metricsReporter != nil {
+					metricsReporter("get_provider", time.Since(start))
+				}
+				return p, err
 			},
 		},
-	}, nil
+	}
+
+	return dc, nil
+}
+
+func NewDHashClient(dhstoreUrl string, stiUrl string, options ...httpclient.Option) (*DHashClient, error) {
+	return NewDHashClientWithReporter(dhstoreUrl, stiUrl, nil, options...)
+}
+
+func (c *DHashClient) reportMetric(method string, start time.Time) {
+	if c.metricsReporter != nil {
+		c.metricsReporter(method, time.Since(start))
+	}
 }
 
 func (c *DHashClient) Find(ctx context.Context, mh multihash.Multihash) (*model.FindResponse, error) {
+	total_start := time.Now()
 	// query value keys from indexer
 	smh, err := dhash.SecondMultihash(mh)
 	if err != nil {
@@ -71,10 +90,12 @@ func (c *DHashClient) Find(ctx context.Context, mh multihash.Multihash) (*model.
 	}
 	req.Header.Add("Accept", "application/json")
 
+	start := time.Now()
 	resp, err := c.c.Do(req)
 	if err != nil {
 		return nil, err
 	}
+	c.reportMetric("get_multihash", start)
 
 	body, err := io.ReadAll(resp.Body)
 	defer resp.Body.Close()
@@ -98,6 +119,7 @@ func (c *DHashClient) Find(ctx context.Context, mh multihash.Multihash) (*model.
 		return nil, err
 	}
 
+	c.reportMetric("total", total_start)
 	return findResponse, nil
 }
 
@@ -116,10 +138,12 @@ func (c *DHashClient) decryptFindResponse(ctx context.Context, resp *model.FindR
 			Multihash: mh,
 		}
 		for _, evk := range encRes.EncryptedValueKeys {
+			start := time.Now()
 			vk, err := dhash.DecryptValueKey(evk, mh)
 			if err != nil {
 				return err
 			}
+			c.reportMetric("decrypt_valkey", start)
 
 			pid, ctxId, err := dhash.SplitValueKey(vk)
 			if err != nil {
@@ -155,10 +179,12 @@ func (c *DHashClient) fetchMetadata(ctx context.Context, vk []byte) ([]byte, err
 	}
 	req.Header.Add("Accept", "application/json")
 
+	start := time.Now()
 	resp, err := c.c.Do(req)
 	if err != nil {
 		return nil, err
 	}
+	c.reportMetric("get_metadata", start)
 
 	body, err := io.ReadAll(resp.Body)
 	defer resp.Body.Close()
@@ -178,7 +204,12 @@ func (c *DHashClient) fetchMetadata(ctx context.Context, vk []byte) ([]byte, err
 		return nil, err
 	}
 
-	return dhash.DecryptMetadata(findResponse.EncryptedMetadata, vk)
+	start = time.Now()
+	dec, err := dhash.DecryptMetadata(findResponse.EncryptedMetadata, vk)
+	if err != nil {
+		c.reportMetric("decrypt_metadata", start)
+	}
+	return dec, err
 }
 
 // providerCache caches ProviderInfo objects as well as indexes ContextualExtendedProviders by ContextID.

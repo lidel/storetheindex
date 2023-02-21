@@ -46,7 +46,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	targetClient, err := finderhttpclient.NewDHashClient(*itarget, *ptarget)
+	targetClient, err := finderhttpclient.NewDHashClientWithReporter(*itarget, *ptarget, func(method string, latency time.Duration) {
+		log.Printf("%s: %v", method, latency)
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -91,7 +93,7 @@ func main() {
 			continue
 		}
 
-		ai, err := getAdInfo(ctx, pid, addr, adCid)
+		ai, err := getAdInfo(ctx, pid, addr, adCid, true)
 		if err != nil {
 			log.Printf("error fetching ad %s from provider %s: %v", adCid, pid, err)
 			continue
@@ -106,7 +108,7 @@ func main() {
 			}
 			adCid = ai.prevCid
 
-			ai, err = getAdInfo(ctx, pid, addr, adCid)
+			ai, err = getAdInfo(ctx, pid, addr, adCid, true)
 			if err != nil {
 				log.Printf("error fetching ad %s from provider %s: %v", adCid, pid, err)
 				break
@@ -195,13 +197,22 @@ func percentile(durations []time.Duration, p int) time.Duration {
 }
 
 // getAdInfo fetches ad from provider via provider CLI
-func getAdInfo(ctx context.Context, pid, addr, adCid string) (*adInfo, error) {
-	out, err := runCmd(ctx, "provider", "ls", "ad", "--print-entries", fmt.Sprintf("--provider-addr-info=%s/p2p/%s", addr, pid), adCid)
+func getAdInfo(ctx context.Context, pid, addr, adCid string, printEntries bool) (*adInfo, error) {
+	var out []byte
+	var err error
+	if printEntries {
+		out, err = runCmd(ctx, "provider", "ls", "ad", "--print-entries", fmt.Sprintf("--provider-addr-info=%s/p2p/%s", addr, pid), adCid)
+	} else {
+		out, err = runCmd(ctx, "provider", "ls", "ad", fmt.Sprintf("--provider-addr-info=%s/p2p/%s", addr, pid), adCid)
+	}
 	if err != nil {
 		return nil, err
 	}
-	ai := &adInfo{
-		mhs: make([]multihash.Multihash, 0, 10000),
+
+	ai := &adInfo{}
+
+	if printEntries {
+		ai.mhs = make([]multihash.Multihash, 0, 10000)
 	}
 	s := bufio.NewScanner(bytes.NewBuffer(out))
 	for s.Scan() {
