@@ -9,7 +9,7 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/ipfs/go-cid"
-	"github.com/ipni/storetheindex/api/v0"
+	v0 "github.com/ipni/storetheindex/api/v0"
 	"github.com/ipni/storetheindex/internal/registry/discovery"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
