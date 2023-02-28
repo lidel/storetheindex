@@ -53,7 +53,7 @@ func main() {
 	for _, p := range sourceProvs {
 		id := p.AddrInfo.ID
 		if _, exists := targets[id]; !exists {
-			fmt.Printf("storetheindex admin sync --pubid=%s --addr=%s/p2p/%s\n", p.AddrInfo.ID.String(), p.AddrInfo.Addrs[0].String(), p.AddrInfo.ID.String())
+			fmt.Printf("storetheindex admin sync --pubid=%s --addr=%s/p2p/%s\n", p.Publisher.ID.String(), p.Publisher.Addrs[0].String(), p.Publisher.ID.String())
 		}
 	}
 }
